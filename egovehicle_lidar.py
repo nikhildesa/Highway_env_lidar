@@ -121,7 +121,7 @@ class Agent():
         #------------------------------------------------------------------------------
         # using heading for angle
         car_angle = math.degrees(math.acos(env.vehicle.heading))  # if the car is going straight the angle is 90 degree
-        car_angle = int(car_angle)  # loss in accuracy
+        
         mydegrees = car_angle - 90   # while taking left it is a 92 degrees, start the lidar from 2 degrees
         #print('angle',mydegrees)
         
