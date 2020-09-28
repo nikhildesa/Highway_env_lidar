@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Sep 28 01:03:03 2020
+
+@author: nikhi
+"""
+
 import torch as T
 import torch.nn as nn
 import torch.nn.functional as F
@@ -101,20 +108,29 @@ class Agent():
             x = kinematics[i][1]           # center x
             y = kinematics[i][2]           # center y
         
-            
+        
+            # Need to find env.vehicle.position and env.vehicle.heading
+        
+            l = np.array([env.vehicle.LENGTH/2, 0])
+            w = np.array([0, env.vehicle.WIDTH/2])
+            points = np.array([- l - w, - l + w, + l - w, + l + w])
+            c, s = np.cos(env.vehicle.heading), np.sin(env.vehicle.heading)
+            R = np.array([[c, -s], [s, c]])
+            rotated_points = R.dot(points.transpose()).transpose()
+            translated_rotated_points = [env.vehicle.position + np.squeeze(p) for p in rotated_points]
         
             
-            car_x_bottom_left = x - 2.5     # width is 5
-            car_y_bottom_left = y - 1       # height is 2
+            car_x_bottom_left = translated_rotated_points[0][0]  
+            car_y_bottom_left = translated_rotated_points[0][1]
             
-            car_x_bottom_right = x + 2.5
-            car_y_bottom_right = y - 1
+            car_x_bottom_right = translated_rotated_points[2][0]
+            car_y_bottom_right = translated_rotated_points[2][1]
             
-            car_x_top_right = x + 2.5
-            car_y_top_right = y + 1
+            car_x_top_right = translated_rotated_points[3][0]
+            car_y_top_right = translated_rotated_points[3][1]
             
-            car_x_top_left = x - 2.5
-            car_y_top_left = y + 1
+            car_x_top_left = translated_rotated_points[1][0]
+            car_y_top_left = translated_rotated_points[1][1]
             
             rectangle = [[car_x_bottom_left,car_y_bottom_left],[car_x_bottom_right,car_y_bottom_right],[car_x_top_right,car_y_top_right],[car_x_top_left,car_y_top_left]]
             

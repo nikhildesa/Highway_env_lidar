@@ -25,3 +25,18 @@ while (count < 180):
         
         endpoints = list(zip(x_line_t,y_line_t))
 """
+import math
+theta1  = math.acos(1)
+
+print(theta1)
+
+degrees = math.degrees(theta1)
+math.cos(degrees)
+
+
+vx = observation[0][3]
+vy = observation[0][4]
+velocity = math.sqrt(math.pow(,2)+math.pow(vy,2))
+cos_heading = vx/velocity 
+
+sin_heading = vy/velocity
