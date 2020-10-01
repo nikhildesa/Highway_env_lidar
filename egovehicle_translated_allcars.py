@@ -40,7 +40,7 @@ class DeepQNetwork(nn.Module):
         return actions
 
 class Agent():
-    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-4):
+    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-3):
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_min = eps_end
@@ -96,29 +96,35 @@ class Agent():
         distance = [] # To store the length of all rays
         
         kinematics = pos
-        kinematics[:,2] = 12 - kinematics[:,2]
+        kinematics[:,2] = 12 - kinematics[:,2]         # 4th quadrant to 1st quadrant
         kinematics = kinematics[kinematics[:,0] == 1]  # consider only those vehicles whose presence is 1
     
         # My vehicle x,y
-        center = (kinematics[0,1],kinematics[0,2])  # My vehicle x,y
+        center = (kinematics[0,1],kinematics[0,2])  # Our vehicle x,y
     
        #Other vehicle x,y
-        #kinematics = kinematics[1:,1:3]
-        for i in range(len(kinematics)):
+    
+        for i in range(1,len(kinematics)):  # loop start from one as we dont want to consider our vehicle
             x = kinematics[i][1]           # center x
             y = kinematics[i][2]           # center y
         
         
             # Need to find env.vehicle.position and env.vehicle.heading
+            
+            cos_h = observation[i][5]
+            sin_h = observation[i][6]
+            
+            heading = np.arctan2(sin_h, cos_h)
         
             l = np.array([env.vehicle.LENGTH/2, 0])
             w = np.array([0, env.vehicle.WIDTH/2])
             points = np.array([- l - w, - l + w, + l - w, + l + w])
-            c, s = np.cos(env.vehicle.heading), np.sin(env.vehicle.heading)
+            
+            c, s = np.cos(heading),np.sin(heading)
             R = np.array([[c, -s], [s, c]])
             rotated_points = R.dot(points.transpose()).transpose()
-            translated_rotated_points = [env.vehicle.position + np.squeeze(p) for p in rotated_points]
-        
+            translated_rotated_points = [[observation[i][1],observation[i][2]] + np.squeeze(p) for p in rotated_points]
+            
             
             car_x_bottom_left = translated_rotated_points[0][0]  
             car_y_bottom_left = translated_rotated_points[0][1]
@@ -131,6 +137,7 @@ class Agent():
             
             car_x_top_left = translated_rotated_points[1][0]
             car_y_top_left = translated_rotated_points[1][1]
+
             
             rectangle = [[car_x_bottom_left,car_y_bottom_left],[car_x_bottom_right,car_y_bottom_right],[car_x_top_right,car_y_top_right],[car_x_top_left,car_y_top_left]]
             

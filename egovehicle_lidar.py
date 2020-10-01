@@ -33,7 +33,7 @@ class DeepQNetwork(nn.Module):
         return actions
 
 class Agent():
-    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-4):
+    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-3):
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_min = eps_end
@@ -96,14 +96,11 @@ class Agent():
         center = (kinematics[0,1],kinematics[0,2])  # My vehicle x,y
     
        #Other vehicle x,y
-        #kinematics = kinematics[1:,1:3]
+        kinematics = kinematics[1:,1:3]
         for i in range(len(kinematics)):
-            x = kinematics[i][1]           # center x
-            y = kinematics[i][2]           # center y
-        
-            
-        
-            
+            x = kinematics[i][0]           # center x
+            y = kinematics[i][1]           # center y
+                
             car_x_bottom_left = x - 2.5     # width is 5
             car_y_bottom_left = y - 1       # height is 2
             
@@ -126,7 +123,7 @@ class Agent():
         car_angle = math.degrees(math.acos(env.vehicle.heading))  # if the car is going straight the angle is 90 degree
         mydegrees = car_angle - 90   # while taking left it is a 92 degrees, start the lidar from 2 degrees
         #------------------------------------------------------------------------------
-        
+        #print(mydegrees)
         rad = 25
         count = 0
         while (count < 180):
