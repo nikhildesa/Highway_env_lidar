@@ -162,13 +162,6 @@ if __name__ == '__main__':
             env.render()
             observation = observation_
 
-"""
-Questions
-1. consider only first and last disk of neighbor is that fine?
-2. should we break loop once the disc is not added to neighbor
-3. Radius of disk ? i have considered it 1.
-
-"""
 
 
  
