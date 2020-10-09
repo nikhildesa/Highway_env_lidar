@@ -1,4 +1,3 @@
-
 import gym
 import highway_env
 import numpy as np
