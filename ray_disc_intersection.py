@@ -4,6 +4,8 @@ import numpy as np
 from matplotlib import pyplot as plt
 import math
 
+
+local_var = {}
 def lidar_visualization(smallest_intersection,sensing_radius,agent_angle_copy):
     center = (0,0)
     for i in range(len(smallest_intersection)):
@@ -25,14 +27,15 @@ def find_endpoints(agent,agent_angle,sensing_radius):
         agent_angle+=2
         count+=1
     endpoints = list(zip(x_point,y_point))
+    local_var['endpoints'] = endpoints
     return endpoints
 
 
 def get_intersection(Q,r,P1,P2):
     """<---------------------Gives closest point of intersection to the circle---------------------->"""
     Q = np.array(Q)    # Centre of circle
-    P1 = np.array(P1)    # Radius of circle
-    P2 = np.array(P2)    # Start of line segment
+    P1 = np.array(P1)    # Start of line segment
+    P2 = np.array(P2)    # End
     V = P2 - P1    # Vector along line segment
    
     a = V.dot(V)
@@ -56,7 +59,7 @@ def get_intersection(Q,r,P1,P2):
 
 def display_lidar(position):
     """ <-------------------Agent-----------------------------> """
-    position = position[position[:,0] == 1]  # considers only those vehicles which are in picture
+    position = position[position[:,0] == 1]  # considers only those vehicles which has presence 1
     position[:,2] = 12 - position[:,2]     # change y axis from 4th duadrant to 1st quadrant
     
     agent_X = position[0][1]    # Agent centre x
@@ -88,17 +91,26 @@ def display_lidar(position):
 
         disc = list(zip(x_circles,y_circles))
         disc_collection.append(disc)
-     
+
+        
+        
     """ <---------------------- check if the neighbor is within our sensing radius------------------> """ 
     neighbor = []
-    sensing_radius = 25
+    sensing_radius = 30
     for n in disc_collection:
         disc_first = np.array(n[0])    # first disk
+        disc_second = np.array(n[1])
+        disc_third = np.array(n[2])
+        disc_forth = np.array(n[3])
         disc_last = np.array(n[4])     # last disk
 
         # Checking if first or last disk is withing sensing radius (may be we dont need to check all disk)
-        if np.linalg.norm(agent - disc_first) < sensing_radius or np.linalg.norm(agent - disc_last) < sensing_radius:
+        
+        # compare  or squared distance (need to change this)
+        if np.linalg.norm(agent - disc_first) < sensing_radius or np.linalg.norm(agent - disc_last) < sensing_radius or np.linalg.norm(agent - disc_second) < sensing_radius or np.linalg.norm(agent - disc_third) < sensing_radius or np.linalg.norm(agent - disc_forth) < sensing_radius:
             neighbor.append(n)
+
+    
     
     """<------------------------- ray end points------------------------------->"""
     endpoints = find_endpoints(agent,agent_angle,sensing_radius)    # end point of the ray
