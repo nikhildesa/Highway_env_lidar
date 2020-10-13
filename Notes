@@ -1,0 +1,15 @@
+
+#Check
+1. check random cases for lidar in ray disc intersection #done
+2. check for DRL in ego vehilce ray disk
+3. train the module.
+4. lidar sequence 
+5. mistake with disk length 6 and car length 5
+6. Video for linux server
+
+#Improve
+
+b<0
+return
+
+avoid heavy numopy computation

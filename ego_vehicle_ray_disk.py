@@ -55,7 +55,7 @@ class Agent():
 
         self.Q_eval = DeepQNetwork(lr, n_actions=n_actions, input_dims=input_dims,
                                     fc1_dims=256, fc2_dims=256)
-        #print(self.Q_eval)
+    
         self.Q_next = DeepQNetwork(lr, n_actions=n_actions, input_dims=input_dims,
                                     fc1_dims=256, fc2_dims=256)
         
@@ -165,14 +165,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 import math
 
-def lidar_visualization(smallest_intersection,sensing_radius,agent_angle_copy):
-    center = (0,0)
-    for i in range(len(smallest_intersection)):
-        x = smallest_intersection[i] * math.cos(math.radians(agent_angle_copy)) # get x coordinate
-        y = smallest_intersection[i] * math.sin(math.radians(agent_angle_copy)) # get y coordinate
-        plt.plot([center[0], x], [center[1], y], color = 'Red', linewidth = 1)  # plot the line
+def lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent):
+    for i in range(len(lidar)):
+        x = lidar[i] * math.cos(math.radians(agent_angle_copy)) + agent[0] # get x coordinate
+        y = lidar[i] * math.sin(math.radians(agent_angle_copy)) + agent[1] # get y coordinate
+        plt.plot([agent[0], x], [agent[1], y], color = 'Red', linewidth = 1)  # plot the line
         agent_angle_copy+=2
-    plt.scatter(center[0],center[1],color = 'Blue',s=500)
+    plt.scatter(agent[0],agent[1],color = 'Black',s=500)
     plt.show()
 
 
@@ -263,7 +262,7 @@ def display_lidar(position):
     
     """<------------------------- ray end points------------------------------->"""
     endpoints = find_endpoints(agent,agent_angle,sensing_radius)    # end point of the ray
-    smallest_intersection = []
+    lidar = []
     for endpoint in endpoints:
         intersection = [sensing_radius]    # if no intersection then sensing radius will be the length of ray
         for disk_set in neighbor:
@@ -272,11 +271,11 @@ def display_lidar(position):
                 if flag!=False:
                     distance = np.linalg.norm(agent - point)    #Euclidean distance from agent centre
                     intersection.append(distance)
-        smallest_intersection.append(min(intersection))    # The smallest intersection is stored
+        lidar.append(min(intersection))    # The smallest intersection is stored
     
     """<--------------------------- visualize the lidar--------------------------->"""    
-    lidar_visualization(smallest_intersection,sensing_radius,agent_angle_copy)        
-    lidar = np.array(smallest_intersection)
+    #lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent)        
+    lidar = np.array(lidar)
     return lidar
 
 
@@ -313,11 +312,11 @@ if __name__ == '__main__':
     env.reset()
     agent = Agent(max_mem_size=15000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[105+540], batch_size=64, n_actions=5,lidar_input_dims=[540],eps_end=0.01)
     n_games = 2000
-    lidar_first = np.zeros(180)
-    lidar_second = np.zeros(180)
     scores,eps_history,avg_score = [],[],[]
     
     for i in range(n_games):
+        lidar_frame1 = np.zeros(180)
+        lidar_frame2 = np.zeros(180)
         score = 0
         observation = env.reset()
         done = False
@@ -325,8 +324,8 @@ if __name__ == '__main__':
             lidar = display_lidar(observation)
             
             current_lidar = lidar.flatten()
-            lidar = np.concatenate((lidar_first,lidar_second,current_lidar))
-            
+            lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
+        
             action = agent.choose_action(observation,lidar)
             
             observation_, reward, done, info = env.step(action)
@@ -336,8 +335,10 @@ if __name__ == '__main__':
                                     observation_, done)                # lidar is for the old observation
             loss = agent.learn()
             observation = observation_
-            lidar_first = lidar_second
-            lidar_second =  current_lidar
+            
+            lidar_frame1 = current_lidar
+            lidar_frame2 = lidar_frame1
+            
 
         scores.append(score)
         eps_history.append(agent.epsilon)
