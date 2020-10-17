@@ -209,9 +209,9 @@ if __name__ == '__main__':
             observation_, reward, done, info = env.step(env.action_space.sample())
             env.render(mode='rgb_array')
         
-            plt.imshow(env.render(mode='rgb_array'))
-            display.display(plt.gcf())    
-            plt.clf()
+            #plt.imshow(env.render(mode='rgb_array'))
+            #display.display(plt.gcf())    
+            #plt.clf()
             
             observation = observation_
     

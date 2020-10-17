@@ -40,7 +40,7 @@ class DeepQNetwork(nn.Module):
     
     
 class Agent():
-    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-4):
+    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-3):
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_min = eps_end
@@ -51,13 +51,13 @@ class Agent():
         self.batch_size = batch_size
         self.mem_cntr = 0
         self.iter_cntr = 0
-        self.replace_target = 20
+        self.replace_target = 50
 
         self.Q_eval = DeepQNetwork(lr, n_actions=n_actions, input_dims=input_dims,
-                                    fc1_dims=256, fc2_dims=256)
+                                    fc1_dims=512, fc2_dims=512)
     
         self.Q_next = DeepQNetwork(lr, n_actions=n_actions, input_dims=input_dims,
-                                    fc1_dims=256, fc2_dims=256)
+                                    fc1_dims=512, fc2_dims=512)
         
         self.Q_next.load_state_dict(self.Q_eval.state_dict())
         self.Q_next.eval()
@@ -120,7 +120,6 @@ class Agent():
         
         batch_index = np.arange(self.batch_size, dtype=np.int32)
         state_batch = T.tensor(self.state_memory[batch]).to(self.Q_eval.device)
-        
         lidar_batch = T.tensor(self.lidar_memory[batch]).to(self.Q_eval.device)
         new_state_batch = T.tensor(self.new_state_memory[batch]).to(self.Q_eval.device)
         action_batch = self.action_memory[batch]
@@ -254,10 +253,13 @@ def display_lidar(position):
     sensing_radius = 25
     for n in disc_collection:
         disc_first = np.array(n[0])    # first disk
+        disc_second = np.array(n[1])
+        disc_third = np.array(n[2])
+        disc_forth = np.array(n[3])
         disc_last = np.array(n[4])     # last disk
 
         # Checking if first or last disk is withing sensing radius (may be we dont need to check all disk)
-        if np.linalg.norm(agent - disc_first) < sensing_radius or np.linalg.norm(agent - disc_last) < sensing_radius:
+        if np.linalg.norm(agent - disc_first) < sensing_radius or np.linalg.norm(agent - disc_last) < sensing_radius or np.linalg.norm(agent - disc_second) < sensing_radius or np.linalg.norm(agent - disc_third) < sensing_radius or np.linalg.norm(agent - disc_forth) < sensing_radius:
             neighbor.append(n)
     
     """<------------------------- ray end points------------------------------->"""
@@ -274,7 +276,7 @@ def display_lidar(position):
         lidar.append(min(intersection))    # The smallest intersection is stored
     
     """<--------------------------- visualize the lidar--------------------------->"""    
-    #lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent)        
+    lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent)        
     lidar = np.array(lidar)
     return lidar
 
@@ -310,43 +312,51 @@ if __name__ == '__main__':
     #env = gym.make('highway-v0')
     env.configure(config)                       # Update our configuration in the environment
     env.reset()
-    agent = Agent(max_mem_size=15000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[105+540], batch_size=64, n_actions=5,lidar_input_dims=[540],eps_end=0.01)
+    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[105+540], batch_size=32, n_actions=5,lidar_input_dims=[540],eps_end=0.01)
     n_games = 2000
     scores,eps_history,avg_score = [],[],[]
+    with open('Data.csv','w') as out_file:
+        for i in range(n_games):
+            lidar_frame1 = np.zeros(180)
+            lidar_frame2 = np.zeros(180)
+            score = 0
+            observation = env.reset()
+            done = False
+            while not done:
+                lidar = display_lidar(observation)
+                
+                current_lidar = lidar.flatten()
+                lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
+            
+                action = agent.choose_action(observation,lidar)
+                
+                observation_, reward, done, info = env.step(action)
+                env.render()
+                score+=reward
+                agent.store_transition(observation,lidar, action, reward, 
+                                        observation_, done)                # lidar is for the old observation
+                loss = agent.learn()
+                observation = observation_
+                
+                lidar_frame2 = lidar_frame1
+                lidar_frame1 = current_lidar
     
-    for i in range(n_games):
-        lidar_frame1 = np.zeros(180)
-        lidar_frame2 = np.zeros(180)
-        score = 0
-        observation = env.reset()
-        done = False
-        while not done:
-            lidar = display_lidar(observation)
+            scores.append(score)
+            eps_history.append(agent.epsilon)
+            avg_score = np.mean(scores[-100:])
+            print('episode ', i, 'score %.2f' % score,
+                    'average score %.2f' % avg_score,
+                    'epsilon %.2f' % agent.epsilon)
             
-            current_lidar = lidar.flatten()
-            lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
-        
-            action = agent.choose_action(observation,lidar)
             
-            observation_, reward, done, info = env.step(action)
-            env.render()
-            score+=reward
-            agent.store_transition(observation,lidar, action, reward, 
-                                    observation_, done)                # lidar is for the old observation
-            loss = agent.learn()
-            observation = observation_
-            
-            lidar_frame1 = current_lidar
-            lidar_frame2 = lidar_frame1
-            
-
-        scores.append(score)
-        eps_history.append(agent.epsilon)
-        avg_score = np.mean(scores[-100:])
-        print('episode ', i, 'score %.2f' % score,
-                'average score %.2f' % avg_score,
-                'epsilon %.2f' % agent.epsilon)
-
+            out_string = ""
+            out_string+=str(i)
+            out_string+=","
+            out_string+=str(score)
+            out_string+=","+str(agent.epsilon)
+            out_string+=","+str(avg_score)
+            out_string+="\n"
+            out_file.write(out_string)
 
 
 
