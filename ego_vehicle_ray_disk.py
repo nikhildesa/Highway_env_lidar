@@ -315,48 +315,56 @@ if __name__ == '__main__':
     agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[105+540], batch_size=32, n_actions=5,lidar_input_dims=[540],eps_end=0.01)
     n_games = 2000
     scores,eps_history,avg_score = [],[],[]
-    with open('Data.csv','w') as out_file:
-        for i in range(n_games):
-            lidar_frame1 = np.zeros(180)
-            lidar_frame2 = np.zeros(180)
-            score = 0
-            observation = env.reset()
-            done = False
-            while not done:
-                lidar = display_lidar(observation)
+    with open('output/Data.csv','w') as out_file:
+        with open('output/loss.csv','w') as loss_file:
+            loss_string = ""
+            for i in range(n_games):
+                lidar_frame1 = np.zeros(180)
+                lidar_frame2 = np.zeros(180)
+                score = 0
+                observation = env.reset()
+                done = False
+                while not done:
+                    lidar = display_lidar(observation)
+                    
+                    current_lidar = lidar.flatten()
+                    lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
                 
-                current_lidar = lidar.flatten()
-                lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
-            
-                action = agent.choose_action(observation,lidar)
+                    action = agent.choose_action(observation,lidar)
+                    
+                    observation_, reward, done, info = env.step(action)
+                    env.render()
+                    score+=reward
+                    agent.store_transition(observation,lidar, action, reward, 
+                                            observation_, done)                # lidar is for the old observation
+                    loss = agent.learn()
+                    loss_string+=str(i)
+                    loss_string+=","
+                    loss_string+=str(loss)
+                    loss_string+="\n"
+                    loss_file.write(loss_string)
+                    
+                    observation = observation_
+                    
+                    lidar_frame2 = lidar_frame1
+                    lidar_frame1 = current_lidar
+        
+                scores.append(score)
+                eps_history.append(agent.epsilon)
+                avg_score = np.mean(scores[-100:])
+                print('episode ', i, 'score %.2f' % score,
+                        'average score %.2f' % avg_score,
+                        'epsilon %.2f' % agent.epsilon)
                 
-                observation_, reward, done, info = env.step(action)
-                env.render()
-                score+=reward
-                agent.store_transition(observation,lidar, action, reward, 
-                                        observation_, done)                # lidar is for the old observation
-                loss = agent.learn()
-                observation = observation_
                 
-                lidar_frame2 = lidar_frame1
-                lidar_frame1 = current_lidar
-    
-            scores.append(score)
-            eps_history.append(agent.epsilon)
-            avg_score = np.mean(scores[-100:])
-            print('episode ', i, 'score %.2f' % score,
-                    'average score %.2f' % avg_score,
-                    'epsilon %.2f' % agent.epsilon)
-            
-            
-            out_string = ""
-            out_string+=str(i)
-            out_string+=","
-            out_string+=str(score)
-            out_string+=","+str(agent.epsilon)
-            out_string+=","+str(avg_score)
-            out_string+="\n"
-            out_file.write(out_string)
+                out_string = ""
+                out_string+=str(i)
+                out_string+=","
+                out_string+=str(score)
+                out_string+=","+str(agent.epsilon)
+                out_string+=","+str(avg_score)
+                out_string+="\n"
+                out_file.write(out_string)
 
 
 
