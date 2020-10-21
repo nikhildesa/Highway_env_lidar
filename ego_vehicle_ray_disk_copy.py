@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 
       *******************      Deep Reinforcement learning  **********************
@@ -12,6 +14,10 @@ import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 import scipy
 import math
+
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter(f'runs/try')
+
 
 class DeepQNetwork(nn.Module):
     def __init__(self, lr, input_dims, fc1_dims, fc2_dims, 
@@ -40,7 +46,7 @@ class DeepQNetwork(nn.Module):
     
     
 class Agent():
-    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-3):
+    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-4):
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_min = eps_end
@@ -108,7 +114,7 @@ class Agent():
 
         return action
 
-    def learn(self):
+    def learn(self,i):
         if self.mem_cntr < self.batch_size:
             return
         
@@ -135,8 +141,9 @@ class Agent():
         q_next[terminal_batch] = 0.0
      
         q_target = reward_batch + self.gamma*T.max(q_next,dim=1)[0]
-        loss = self.Q_eval.loss(q_target, q_eval).to(self.Q_eval.device)
+
         loss = F.mse_loss(q_target,q_eval)
+        writer.add_scalar('training loss',loss,global_step=i)
         loss.backward()
         self.Q_eval.optimizer.step()
 
@@ -277,7 +284,7 @@ def display_lidar(position):
         lidar.append(min(intersection))    # The smallest intersection is stored
     
     """<--------------------------- visualize the lidar--------------------------->"""    
-    lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent)        
+    #lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent)        
     lidar = np.array(lidar)
     return lidar
 
@@ -313,75 +320,75 @@ if __name__ == '__main__':
     #env = gym.make('highway-v0')
     env.configure(config)                       # Update our configuration in the environment
     env.reset()
-    #env = gym.wrappers.Monitor(env,  "./vid", video_callable=lambda episode_id: True)
     env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
     agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[105+540], batch_size=32, n_actions=5,lidar_input_dims=[540],eps_end=0.01)
-    n_games = 2000
-    scores,eps_history,avg_score = [],[],[]
+    n_games = 4000
+    scores,eps_history,avg_score,speed_at_collision = [],[],[],[]
+    env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
     with open('Data.csv','w') as out_file:
-        with open('loss.csv','w') as loss_file:
-            loss_string = ""
-            for i in range(n_games):
-                lidar_frame1 = np.zeros(180)
-                lidar_frame2 = np.zeros(180)
-                score = 0
-                speed_in_episode = []
-                crashed = False
-                observation = env.reset()
-                done = False
-                while not done:
-                    lidar = display_lidar(observation)
-                    
-                    current_lidar = lidar.flatten()
-                    lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
+        for i in range(n_games):
+            lidar_frame1 = np.zeros(180)
+            lidar_frame2 = np.zeros(180)
+            score = 0
+            speed_in_episode = []
+            crashed = False
+            observation = env.reset()
+            done = False
+            while not done:
+                lidar = display_lidar(observation)
                 
-                    action = agent.choose_action(observation,lidar)
-                    
-                    observation_, reward, done, info = env.step(action)
-                    env.render()
-                    score+=reward
-                    agent.store_transition(observation,lidar, action, reward, 
-                                            observation_, done)                # lidar is for the old observation
-                    loss = agent.learn()
-                    loss_string+=str(i)
-                    loss_string+=","
-                    loss_string+=str(loss)
-                    loss_string+="\n"
-                    loss_file.write(loss_string)
-                    
-                    observation = observation_
-                    
-                    lidar_frame2 = lidar_frame1
-                    lidar_frame1 = current_lidar
-                    
-                    speed_in_episode.append(math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4],2)))
-                    
-                    if(info['crashed'] == True):
-                        crashed = True
-                    
-                    
-                scores.append(score)
-                eps_history.append(agent.epsilon)
-                avg_score = np.mean(scores[-100:])
-                avg_speed = np.mean(speed_in_episode)
-                speed_at_collision = math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4],2))
-                print('episode ', i, 'score %.2f' % score,
-                        'average score %.2f' % avg_score,
-                        'epsilon %.2f' % agent.epsilon)
+                current_lidar = lidar.flatten()
+                lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
+            
+                action = agent.choose_action(observation,lidar)
+                
+                observation_, reward, done, info = env.step(action)
+                env.render()
+                score+=reward
+                agent.store_transition(observation,lidar, action, reward, 
+                                        observation_, done)                # lidar is for the old observation
+                agent.learn(i)
+                observation = observation_
+                
+                lidar_frame2 = lidar_frame1
+                lidar_frame1 = current_lidar
+                
+                speed_in_episode.append(math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2)))
+                
+                if(info['crashed'] == True):
+                    crashed = True
                 
                 
-                out_string = ""
-                out_string+=str(i)
-                out_string+=","
-                out_string+=str(score)
-                out_string+=","+str(agent.epsilon)
-                out_string+=","+str(avg_score)
-                out_string+=","+str(speed_at_collision)
-                out_string+=","+str(avg_speed)
-                out_string+=","+str(crashed)
-                out_string+="\n"
-                out_file.write(out_string)
-
+            
+            scores.append(score)
+            speed_at_collision = math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2))
+            eps_history.append(agent.epsilon)
+            avg_score = np.mean(scores[-100:])
+            avg_speed = np.mean(speed_in_episode)
+            print('episode ', i, 'score %.2f' % score,
+                    'average score %.2f' % avg_score,
+                    'epsilon %.2f' % agent.epsilon)
+            
+            # Adding to tensorboard
+            
+            writer.add_scalar('reward',score,global_step=i)
+            writer.add_scalar('epsilon',agent.epsilon,global_step=i)
+            writer.add_scalar('avg_score',avg_score,global_step=i)
+            writer.add_scalar('speed_at_collision',speed_at_collision,global_step=i)
+            writer.add_scalar('avg_speed_epsiode',avg_speed,global_step=i)
+            
+            # Adding to local file
+            out_string = ""
+            out_string+=str(i)
+            out_string+=","+str(score)
+            out_string+=","+str(agent.epsilon)
+            out_string+=","+str(avg_score)
+            out_string+=","+str(speed_at_collision)
+            out_string+=","+str(avg_speed)
+            out_string+=","+str(crashed)
+            out_string+="\n"
+            out_file.write(out_string)
+        
 
 
 
