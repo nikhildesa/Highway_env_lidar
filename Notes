@@ -9,7 +9,77 @@
 
 #Improve
 
-b<0
-return
 
-avoid heavy numopy computation
+#Parameters in vanilla dqn
+layers two 256,256
+gamma 0.8
+batch size 32
+memory capacity 32
+target update 50
+tau 6000
+epsilom start 1
+epsilon end 0.05
+loss function l2
+
+
+highway env default
+config = {
+
+{'observation': {'type': 'Kinematics'},
+ 'action': {'type': 'DiscreteMetaAction'},
+ 'simulation_frequency': 15,
+ 'policy_frequency': 1,
+ 'other_vehicles_type': 'highway_env.vehicle.behavior.IDMVehicle',
+ 'screen_width': 600,
+ 'screen_height': 150,
+ 'centering_position': [0.3, 0.5],
+ 'scaling': 5.5,
+ 'show_trajectories': False,
+ 'render_agent': True,
+ 'offscreen_rendering': False,
+ 'manual_control': False,
+ 'lanes_count': 4,
+ 'vehicles_count': 50,
+ 'duration': 40,
+ 'initial_spacing': 2,
+ 'collision_reward': -1,
+ 'offroad_terminal': False,
+ "features": ["presence", "x", "y", "vx", "vy","cos_h","sin_h"],  # changes
+ "normalize":False,  # changes
+ "absolute": True,   # changes
+ "order": "sorted",  # changes
+ }
+}
+
+
+observation is presence x, y, vx, vy while giving input to nn
+lanes count 4
+simulation frequncy is 15
+duration 40
+vehicle count is 50
+
+config = {
+"observation": {
+    "offscreen_rendering": True,
+    "type": "Kinematics",
+    "vehicles_count": 15,
+    "initial_spacing":10,
+    "features": ["presence", "x", "y", "vx", "vy","cos_h","sin_h"],
+    "features_range": {
+        "x": [0, 100],
+        "y": [0, 100],
+        "vx": [-20, 20],
+        "vy": [-20, 20]
+    },
+    "lanes_count": 2,
+    "other_vehicles_type": "highway_env.vehicle.behavior.IDMVehicle",
+    "absolute": True,
+    "order": "sorted",
+    'render_agent': True,
+    "normalize":False,
+    "duration":100,
+    'simulation_frequency': 20,
+
+                }
+        }
+
