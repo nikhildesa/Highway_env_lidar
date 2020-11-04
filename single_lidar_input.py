@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 """
 
@@ -12,9 +11,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
-
-from sklearn.metrics.pairwise import euclidean_distances
-import scipy
 import math
 
 from torch.utils.tensorboard import SummaryWriter
@@ -39,7 +35,7 @@ class DeepQNetwork(nn.Module):
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
 
-    def forward(self, state):   # The input here is a batch
+    def forward(self, state): 
         x = F.relu(self.fc1(state))
         x = F.relu(self.fc2(x))
         actions = self.fc3(x)
@@ -49,7 +45,7 @@ class DeepQNetwork(nn.Module):
     
     
 class Agent():
-    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-5):
+    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,eps_end=0.05, eps_dec=5e-5):
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_min = eps_end
@@ -62,70 +58,51 @@ class Agent():
         self.iter_cntr = 0
         self.replace_target = 50
 
-        self.Q_eval = DeepQNetwork(lr, n_actions=n_actions, input_dims=input_dims,
-                                    fc1_dims=512, fc2_dims=512)
+        self.Q_eval = DeepQNetwork(lr,input_dims=input_dims,
+                                    fc1_dims=512, fc2_dims=512, n_actions=n_actions)
     
-        self.Q_next = DeepQNetwork(lr, n_actions=n_actions, input_dims=input_dims,
-                                    fc1_dims=512, fc2_dims=512)
+        self.Q_next = DeepQNetwork(lr, input_dims=input_dims,
+                                    fc1_dims=512, fc2_dims=512, n_actions=n_actions)
         
         self.Q_next.load_state_dict(self.Q_eval.state_dict())
         self.Q_next.eval()
 
 
-        self.state_memory = np.zeros((self.mem_size, 105), dtype=np.float32)
-        self.new_state_memory = np.zeros((self.mem_size, 105), dtype=np.float32)
+        self.lidar_memory = np.zeros((self.mem_size, 182), dtype=np.float32)
+        self.new_lidar_memory = np.zeros((self.mem_size, 182), dtype=np.float32)
         self.action_memory = np.zeros(self.mem_size, dtype=np.int32)
         self.reward_memory = np.zeros(self.mem_size, dtype=np.float32)
         self.terminal_memory = np.zeros(self.mem_size, dtype=np.bool)
-        
-        self.lidar_memory = np.zeros((self.mem_size, *lidar_input_dims), dtype=np.float32)
+
         self.current_loss = []    
     
     
     
-    def store_transition(self, state,lidar,action, reward, state_, terminal):
+    def store_transition(self,lidar,action, reward, lidar_, terminal):
         index = self.mem_cntr % self.mem_size
-        state = state.flatten().astype(np.float32)
-        state_ = state_.flatten().astype(np.float32)
         lidar = lidar.flatten().astype(np.float32)
+        lidar_ = lidar_.flatten().astype(np.float32)
        
-        
-        self.state_memory[index] = state
         self.lidar_memory[index] = lidar
-        self.new_state_memory[index] = state_
+        self.new_lidar_memory[index] = lidar_
         self.reward_memory[index] = reward
         self.action_memory[index] = action
         self.terminal_memory[index] = terminal
-        #print(self.mem_cntr)
         self.mem_cntr += 1
         
-    def choose_action_testing(self,observation,lidar):
-        observation = observation.flatten()         
-        observation = np.float32(observation)
+    def choose_action_testing(self,lidar):
         lidar = np.float32(lidar)
-        
-        state = T.tensor([observation]).to(self.Q_eval.device)
         lidar = T.tensor([lidar]).to(self.Q_eval.device)
-        
-        state_lidar = T.cat([state,lidar],dim = 1)
-        
-        actions = self.Q_eval.forward(state_lidar)
+        actions = self.Q_eval.forward(lidar)
         action = T.argmax(actions).item()
         
         return action
 
-    def choose_action(self, observation,lidar):
+    def choose_action(self,lidar):
         if np.random.random() > self.epsilon:
-            observation = observation.flatten()         
-            observation = np.float32(observation)
             lidar = np.float32(lidar)
-            
-            state = T.tensor([observation]).to(self.Q_eval.device)
             lidar = T.tensor([lidar]).to(self.Q_eval.device)
-            
-            state_lidar = T.cat([state,lidar],dim = 1)
-            
-            actions = self.Q_eval.forward(state_lidar)
+            actions = self.Q_eval.forward(lidar)
             action = T.argmax(actions).item()
         else:
             action = np.random.choice(self.action_space)
@@ -139,22 +116,17 @@ class Agent():
         self.Q_eval.optimizer.zero_grad()
         
         max_mem = min(self.mem_cntr, self.mem_size)
-
         batch = np.random.choice(max_mem, self.batch_size, replace=False)
-        
         batch_index = np.arange(self.batch_size, dtype=np.int32)
-        state_batch = T.tensor(self.state_memory[batch]).to(self.Q_eval.device)
+        
         lidar_batch = T.tensor(self.lidar_memory[batch]).to(self.Q_eval.device)
-        new_state_batch = T.tensor(self.new_state_memory[batch]).to(self.Q_eval.device)
+        new_lidar_batch = T.tensor(self.new_lidar_memory[batch]).to(self.Q_eval.device)
         action_batch = self.action_memory[batch]
         reward_batch = T.tensor(self.reward_memory[batch]).to(self.Q_eval.device)
         terminal_batch = T.tensor(self.terminal_memory[batch]).to(self.Q_eval.device)
-    
-        c = T.cat([state_batch, lidar_batch], dim=1)
-        d = T.cat([new_state_batch,lidar_batch],dim = 1)
         
-        q_eval = self.Q_eval.forward(c)[batch_index, action_batch]   # need to send lidar to the NN for learning
-        q_next = self.Q_next.forward(d)
+        q_eval = self.Q_eval.forward(lidar_batch)[batch_index, action_batch] 
+        q_next = self.Q_next.forward(new_lidar_batch)
         
         q_next[terminal_batch] = 0.0
      
@@ -165,24 +137,15 @@ class Agent():
         writer.add_scalar('training loss',loss,global_step=i)
         loss.backward()
         self.Q_eval.optimizer.step()
-        #print(loss)
-        
-        
-
         self.iter_cntr += 1
         
         self.epsilon = self.epsilon - self.eps_dec if self.epsilon > self.eps_min \
                        else self.eps_min
                        
-        #self.epsilon = self.eps_min + (1.0 - self.eps_min) * np.exp(-self.eps_dec * i)
-                       
         if self.iter_cntr % self.replace_target == 0:
             self.Q_next.load_state_dict(self.Q_eval.state_dict())
         return loss.item()
-
-    
-      
-    
+ 
     
 """
 
@@ -195,6 +158,41 @@ import highway_env
 import numpy as np
 from matplotlib import pyplot as plt
 import math
+
+"""
+def rollouts(current_lidar,global_step):
+    reward_bag = []
+    
+    for i in range(10):
+        action = agent.choose_action_testing(current_lidar)
+        observation_, reward, done, info = env.step(action)
+        reward_bag.append(reward)
+    avg_reward_rollouts = sum(reward_bag)/len(reward_bag)
+    writer.add_scalar('avg_rollout_score',avg_reward_rollouts,global_step)
+"""
+  
+def rollouts(current_lidar,global_step):
+    reward_bag = []
+    for i in range(10):
+        score = 0
+        done = False
+        while not done:
+            action = agent.choose_action_testing(current_lidar)
+            observation_, reward, done, info = env.step(action)
+            score+=reward
+        reward_bag.append(score)
+    avg_reward_rollouts = sum(reward_bag)/len(reward_bag)
+    writer.add_scalar('avg_rollout_score',avg_reward_rollouts,global_step)
+
+def save_checkpoints(state,global_step):
+    filename = 'my_checkpoint/checkpoint_'+str(global_step)+'.pth.tar'
+    print('saving checkpoint',global_step)
+    T.save(state,filename)
+    
+def load_checkpoint(checkpoint):
+    print('loading checkpoint')
+    agent.Q_eval.load_state_dict(checkpoint['state_dict'])
+    agent.Q_eval.optimizer.load_state_dict(checkpoint['optimizer'])
 
 def lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent):
     for i in range(len(lidar)):
@@ -344,48 +342,59 @@ if __name__ == '__main__':
 
         }
 
-    #env = gym.make('highway-v0')
     env.configure(config)                       # Update our configuration in the environment
     env.reset()
-    env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
-    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[105+540], batch_size=32, n_actions=5,lidar_input_dims=[540],eps_end=0.05)
+    #env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
+    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[180+2], batch_size=32, n_actions=5,eps_end=0.05)
     n_games = 4000
     scores,eps_history,avg_score,speed_at_collision = [],[],[],[]
-    env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
+    global_step = 0
     with open('Data.csv','w') as out_file:
         for i in range(n_games):
-            lidar_frame1 = np.zeros(180)
-            lidar_frame2 = np.zeros(180)
             score = 0
             speed_in_episode = []
             crashed = False
             observation = env.reset()
             done = False
+
             while not done:
-                lidar = display_lidar(observation)
+                global_step+=1
+                checkpoints = {'state_dict':agent.Q_eval.state_dict(),'optimizer':agent.Q_eval.optimizer.state_dict()}
+                if global_step%500 == 0:
+                    save_checkpoints(checkpoints,global_step)
+                         
+                """  Get Lidar   """
+                lidar = display_lidar(observation)  
+                vx = np.array([observation[0][3]])
+                vy = np.array([observation[0][4]])
+                current_lidar = np.concatenate((lidar,vx,vy))
                 
-                current_lidar = lidar.flatten()
-                lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
-                action = agent.choose_action(observation,lidar)
+                """ Check if rollouts """
+                if global_step%500 == 0:
+                    rollouts(current_lidar,global_step)
                 
-                observation_, reward, done, info = env.step(action)
-                env.render()
+                """ Take action  """
+                action = agent.choose_action(current_lidar)
+                observation_, reward, done, info = env.step(action)   
+                
+                """ Get Lidar for next observation  """
+                lidar_ = display_lidar(observation_)
+                vx_ = np.array([observation_[0][3]])
+                vy_ = np.array([observation_[0][4]])
+                current_lidar_ = np.concatenate((lidar_,vx_,vy_))
+                
+                """ Render Store Learn """
+                env.render()                        
                 score+=reward
-                agent.store_transition(observation,lidar, action, reward, 
-                                        observation_, done)                # lidar is for the old observation
+                agent.store_transition(current_lidar, action, reward,current_lidar_, done) 
                 agent.learn(i)
                 observation = observation_
-                
-                lidar_frame2 = lidar_frame1
-                lidar_frame1 = current_lidar
-                
+
                 speed_in_episode.append(math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2)))
-                
                 if(info['crashed'] == True):
                     crashed = True
-                
-                
-            
+                else:
+                    print('global step',global_step)
             scores.append(score)
             speed_at_collision = math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2))
             eps_history.append(agent.epsilon)
@@ -393,7 +402,8 @@ if __name__ == '__main__':
             avg_speed = np.mean(speed_in_episode)
             print('episode ', i, 'score %.2f' % score,
                     'average score %.2f' % avg_score,
-                    'epsilon %.2f' % agent.epsilon)
+                    'epsilon %.2f' % agent.epsilon,
+                    'crashed',crashed)
             
             # Adding to tensorboard
             
@@ -414,41 +424,38 @@ if __name__ == '__main__':
             out_string+=","+str(crashed)
             out_string+="\n"
             out_file.write(out_string)
-        
-    # Testing    
+      
+    #<--------------------------------------Testing ------------------------------->    
     
+    
+    
+
     with open('Test.csv','w') as test_file:
         for i in range(500):
-            lidar_frame1 = np.zeros(180)
-            lidar_frame2 = np.zeros(180)
             score = 0
             speed_in_episode = []
             crashed = False
             observation = env.reset()
             done = False
             while not done:
-                lidar = display_lidar(observation)
+                lidar = display_lidar(observation)  
+                vx = np.array([observation[0][3]])
+                vy = np.array([observation[0][4]])
+                current_lidar = np.concatenate((lidar,vx,vy))
                 
-                current_lidar = lidar.flatten()
-                lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
-                action = agent.choose_action_testing(observation,lidar)
-                
-                observation_, reward, done, info = env.step(action)
-                env.render()
+                action = agent.choose_action_testing(current_lidar)
+                observation_, reward, done, info = env.step(action)   
+
+                env.render()                        
                 score+=reward
-                
-                lidar_frame2 = lidar_frame1
-                lidar_frame1 = current_lidar
-                
+                observation = observation_
+
                 speed_in_episode.append(math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2)))
-                
                 if(info['crashed'] == True):
                     crashed = True
                 
-                
             scores.append(score)
             speed_at_collision = math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2))
-            eps_history.append(agent.epsilon)
             avg_score = np.mean(scores[-100:])
             avg_speed = np.mean(speed_in_episode)
             print('episode ', i, 'score %.2f' % score,
@@ -472,6 +479,6 @@ if __name__ == '__main__':
             test_string+="\n"
             test_file.write(test_string)
 
-
+    
 
 

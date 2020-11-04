@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
+"""
+Created on Mon Oct 26 15:36:25 2020
 
+@author: nikhi
 """
 
-      *******************      Deep Reinforcement learning  **********************
-      
 
-
-"""
 import torch as T
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,7 +17,7 @@ import scipy
 import math
 
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter(f'runs/t2')
+writer = SummaryWriter(f'runs/vanilla1')
 
 
 class DeepQNetwork(nn.Module):
@@ -49,7 +48,7 @@ class DeepQNetwork(nn.Module):
     
     
 class Agent():
-    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,lidar_input_dims,eps_end=0.05, eps_dec=5e-5):
+    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,eps_end=0.05, eps_dec=5e-5):
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_min = eps_end
@@ -78,20 +77,17 @@ class Agent():
         self.reward_memory = np.zeros(self.mem_size, dtype=np.float32)
         self.terminal_memory = np.zeros(self.mem_size, dtype=np.bool)
         
-        self.lidar_memory = np.zeros((self.mem_size, *lidar_input_dims), dtype=np.float32)
         self.current_loss = []    
     
     
     
-    def store_transition(self, state,lidar,action, reward, state_, terminal):
+    def store_transition(self, state,action, reward, state_, terminal):
         index = self.mem_cntr % self.mem_size
         state = state.flatten().astype(np.float32)
         state_ = state_.flatten().astype(np.float32)
-        lidar = lidar.flatten().astype(np.float32)
        
         
         self.state_memory[index] = state
-        self.lidar_memory[index] = lidar
         self.new_state_memory[index] = state_
         self.reward_memory[index] = reward
         self.action_memory[index] = action
@@ -99,33 +95,25 @@ class Agent():
         #print(self.mem_cntr)
         self.mem_cntr += 1
         
-    def choose_action_testing(self,observation,lidar):
+    def choose_action_testing(self,observation):
         observation = observation.flatten()         
         observation = np.float32(observation)
-        lidar = np.float32(lidar)
         
-        state = T.tensor([observation]).to(self.Q_eval.device)
-        lidar = T.tensor([lidar]).to(self.Q_eval.device)
+        state = T.tensor([observation]).to(self.Q_eval.device)       
         
-        state_lidar = T.cat([state,lidar],dim = 1)
-        
-        actions = self.Q_eval.forward(state_lidar)
+        actions = self.Q_eval.forward(state)
         action = T.argmax(actions).item()
         
         return action
 
-    def choose_action(self, observation,lidar):
+    def choose_action(self, observation):
         if np.random.random() > self.epsilon:
             observation = observation.flatten()         
             observation = np.float32(observation)
-            lidar = np.float32(lidar)
             
             state = T.tensor([observation]).to(self.Q_eval.device)
-            lidar = T.tensor([lidar]).to(self.Q_eval.device)
-            
-            state_lidar = T.cat([state,lidar],dim = 1)
-            
-            actions = self.Q_eval.forward(state_lidar)
+        
+            actions = self.Q_eval.forward(state)
             action = T.argmax(actions).item()
         else:
             action = np.random.choice(self.action_space)
@@ -144,17 +132,14 @@ class Agent():
         
         batch_index = np.arange(self.batch_size, dtype=np.int32)
         state_batch = T.tensor(self.state_memory[batch]).to(self.Q_eval.device)
-        lidar_batch = T.tensor(self.lidar_memory[batch]).to(self.Q_eval.device)
         new_state_batch = T.tensor(self.new_state_memory[batch]).to(self.Q_eval.device)
         action_batch = self.action_memory[batch]
         reward_batch = T.tensor(self.reward_memory[batch]).to(self.Q_eval.device)
         terminal_batch = T.tensor(self.terminal_memory[batch]).to(self.Q_eval.device)
     
-        c = T.cat([state_batch, lidar_batch], dim=1)
-        d = T.cat([new_state_batch,lidar_batch],dim = 1)
         
-        q_eval = self.Q_eval.forward(c)[batch_index, action_batch]   # need to send lidar to the NN for learning
-        q_next = self.Q_next.forward(d)
+        q_eval = self.Q_eval.forward(state_batch)[batch_index, action_batch]   # need to send lidar to the NN for learning
+        q_next = self.Q_next.forward(new_state_batch)
         
         q_next[terminal_batch] = 0.0
      
@@ -186,7 +171,7 @@ class Agent():
     
 """
 
-     *****************       Lidar + Testing           ***********************
+     *****************      Training         ***********************
 
 """    
 import gym
@@ -196,121 +181,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 import math
 
-def lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent):
-    for i in range(len(lidar)):
-        x = lidar[i] * math.cos(math.radians(agent_angle_copy)) + agent[0] # get x coordinate
-        y = lidar[i] * math.sin(math.radians(agent_angle_copy)) + agent[1] # get y coordinate
-        plt.plot([agent[0], x], [agent[1], y], color = 'Red', linewidth = 1)  # plot the line
-        agent_angle_copy+=2
-    plt.scatter(agent[0],agent[1],color = 'Black',s=500)
-    plt.show()
-
-
-def find_endpoints(agent,agent_angle,sensing_radius):
-    """<--------------------------- gives endpoint for the ray segment---------------------->"""
-    count = 0
-    x_point,y_point = [],[]
-    while (count < 180):
-        x_point.append(sensing_radius * math.cos(math.radians(agent_angle)) + agent[0])
-        y_point.append(sensing_radius * math.sin(math.radians(agent_angle)) + agent[1])
-        agent_angle+=2
-        count+=1
-    endpoints = list(zip(x_point,y_point))
-    return endpoints
-
-
-def get_intersection(Q,r,P1,P2):
-    """<---------------------Gives closest point of intersection to the circle---------------------->"""
-    Q = np.array(Q)    # Centre of circle
-    P1 = np.array(P1)    # Radius of circle
-    P2 = np.array(P2)    # Start of line segment
-    V = P2 - P1    # Vector along line segment
-   
-    a = V.dot(V)
-    b = 2 * V.dot(P1 - Q)
-    c = P1.dot(P1) + Q.dot(Q) - 2 * P1.dot(Q) - r**2
-    
-    disc = b**2 - 4 * a * c
-    if disc < 0:
-        return False, None
-    
-    sqrt_disc = math.sqrt(disc)
-    t1 = (-b + sqrt_disc) / (2 * a)
-    t2 = (-b - sqrt_disc) / (2 * a)
-    
-    if not (0 <= t1 <= 1 or 0 <= t2 <= 1):
-        return False, None
-    
-    t = min(t1,t2)
-    return True,P1 + t * V
-
-
-def display_lidar(position):
-    """ <-------------------Agent-----------------------------> """
-    position = position[position[:,0] == 1]  # considers only those vehicles which are in picture
-    position[:,2] = 12 - position[:,2]     # change y axis from 4th duadrant to 1st quadrant
-    
-    agent_X = position[0][1]    # Agent centre x
-    agent_Y = position[0][2]    # Agent centre y
-    
-    agent = (agent_X,agent_Y)   # Agent position
-    agent_inclination = math.degrees(math.acos(env.vehicle.heading))
-    agent_angle = agent_inclination - 90    # angle wrt lane
-    agent_angle_copy = agent_angle    # copy of angle needed ahead
-    
-    """ <------------------------- Neighbor vehicles------------------> """
-    disc_collection = []
-    for i in range(1,len(position)):   # starts from 1 as 0 is our agent
-
-        l = 5   # length of vehicle
-        w = 2   # width of vehicle
-        X = position[i][1]  # neighbor X
-        Y = position[i][2]  # neighbor Y
-        cos_h = position[i][5]
-        sin_h = position[i][6]
-        heading = np.arctan2(sin_h, cos_h)
-        car_angle = math.degrees(math.acos(heading))
-        yaw = car_angle - 90    # angle wrt lane
-
-        num = int(np.ceil(l/w)-1)    # the total number of discs will be 2*num + 1 = 5
-        s1 = np.array(range(-num,num+1)) 
-        x_circles = X*np.ones(num*2+1) + s1*w/2*math.cos(math.radians(yaw))    # the x coordinates of the discs
-        y_circles = Y*np.ones(num*2+1) + s1*w/2*math.sin(math.radians(yaw))    # the y-coordinates of the discs
-
-        disc = list(zip(x_circles,y_circles))
-        disc_collection.append(disc)
-     
-    """ <---------------------- check if the neighbor is within our sensing radius------------------> """ 
-    neighbor = []
-    sensing_radius = 25
-    for n in disc_collection:
-        disc_first = np.array(n[0])    # first disk
-        disc_second = np.array(n[1])
-        disc_third = np.array(n[2])
-        disc_forth = np.array(n[3])
-        disc_last = np.array(n[4])     # last disk
-
-        # Checking if first or last disk is withing sensing radius (may be we dont need to check all disk)
-        if np.linalg.norm(agent - disc_first) < sensing_radius or np.linalg.norm(agent - disc_last) < sensing_radius or np.linalg.norm(agent - disc_second) < sensing_radius or np.linalg.norm(agent - disc_third) < sensing_radius or np.linalg.norm(agent - disc_forth) < sensing_radius:
-            neighbor.append(n)
-    
-    """<------------------------- ray end points------------------------------->"""
-    endpoints = find_endpoints(agent,agent_angle,sensing_radius)    # end point of the ray
-    lidar = []
-    for endpoint in endpoints:
-        intersection = [sensing_radius]    # if no intersection then sensing radius will be the length of ray
-        for disk_set in neighbor:
-            for disk in disk_set:
-                flag,point = get_intersection(disk,1,agent,endpoint)
-                if flag!=False:
-                    distance = np.linalg.norm(agent - point)    #Euclidean distance from agent centre
-                    intersection.append(distance)
-        lidar.append(min(intersection))    # The smallest intersection is stored
-    
-    """<--------------------------- visualize the lidar--------------------------->"""    
-    #lidar_visualization(lidar,sensing_radius,agent_angle_copy,agent)        
-    lidar = np.array(lidar)
-    return lidar
 
 
 if __name__ == '__main__':
@@ -348,36 +218,27 @@ if __name__ == '__main__':
     env.configure(config)                       # Update our configuration in the environment
     env.reset()
     env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
-    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[105+540], batch_size=32, n_actions=5,lidar_input_dims=[540],eps_end=0.05)
+    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[105], batch_size=32, n_actions=5,eps_end=0.05)
     n_games = 4000
     scores,eps_history,avg_score,speed_at_collision = [],[],[],[]
-    env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
+    #env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
     with open('Data.csv','w') as out_file:
         for i in range(n_games):
-            lidar_frame1 = np.zeros(180)
-            lidar_frame2 = np.zeros(180)
             score = 0
             speed_in_episode = []
             crashed = False
             observation = env.reset()
             done = False
             while not done:
-                lidar = display_lidar(observation)
-                
-                current_lidar = lidar.flatten()
-                lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
-                action = agent.choose_action(observation,lidar)
+                action = agent.choose_action(observation)
                 
                 observation_, reward, done, info = env.step(action)
                 env.render()
                 score+=reward
-                agent.store_transition(observation,lidar, action, reward, 
+                agent.store_transition(observation,action, reward, 
                                         observation_, done)                # lidar is for the old observation
                 agent.learn(i)
                 observation = observation_
-                
-                lidar_frame2 = lidar_frame1
-                lidar_frame1 = current_lidar
                 
                 speed_in_episode.append(math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2)))
                 
@@ -419,26 +280,17 @@ if __name__ == '__main__':
     
     with open('Test.csv','w') as test_file:
         for i in range(500):
-            lidar_frame1 = np.zeros(180)
-            lidar_frame2 = np.zeros(180)
             score = 0
             speed_in_episode = []
             crashed = False
             observation = env.reset()
             done = False
             while not done:
-                lidar = display_lidar(observation)
-                
-                current_lidar = lidar.flatten()
-                lidar = np.concatenate((current_lidar,lidar_frame1,lidar_frame2))   # current, (prev frame), (prev prev frame)
-                action = agent.choose_action_testing(observation,lidar)
+                action = agent.choose_action_testing(observation)
                 
                 observation_, reward, done, info = env.step(action)
                 env.render()
                 score+=reward
-                
-                lidar_frame2 = lidar_frame1
-                lidar_frame1 = current_lidar
                 
                 speed_in_episode.append(math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2)))
                 
