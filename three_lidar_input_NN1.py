@@ -1,7 +1,7 @@
 
 """
-            three(lidar vx,vy) ->fc1 ->fc2 ->actions
-      *******************      Deep Reinforcement learning  **********************
+
+      *******************  three (lidar) -> fc1-> fc2-> output+ three (vx,vy) ->fc3 ->fc4 ->output  **********************
       
 
 
@@ -14,32 +14,39 @@ import numpy as np
 import math
 
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter(f'C:/Users/nikhi/Documents/three_lidar_input/runs')
+writer = SummaryWriter(f'runs')
 
 
 class DeepQNetwork(nn.Module):
-    def __init__(self, lr, input_dims, fc1_dims, fc2_dims, 
-            n_actions):
+    def __init__(self, lr, input_dims, fc1_dims, fc2_dims, n_actions):
         super(DeepQNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
+        self.fc2_dims = 512
+        self.fc3_dims = 512
+        self.fc4_dims = 512
+
+        
         self.n_actions = n_actions
         self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
-        self.fc3 = nn.Linear(self.fc2_dims, self.n_actions)
-
+        self.fc3 = nn.Linear(518,self.fc3_dims)
+        self.fc4 = nn.Linear(self.fc3_dims, self.fc4_dims)
+        self.fc5 = nn.Linear(self.fc4_dims, self.n_actions)
+        
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         self.loss = nn.MSELoss()
         
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
 
-    def forward(self,state,velocity):
-        x = T.cat([state,velocity],dim = 1)
-        x = F.relu(self.fc1(x))
+    def forward(self, lidar,velocity): 
+        x = F.relu(self.fc1(lidar))
         x = F.relu(self.fc2(x))
-        actions = self.fc3(x)
+        x = T.cat([x,velocity],dim = 1)
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        actions = self.fc5(x)
 
         return actions
     
@@ -74,11 +81,11 @@ class Agent():
         self.action_memory = np.zeros(self.mem_size, dtype=np.int32)
         self.reward_memory = np.zeros(self.mem_size, dtype=np.float32)
         self.terminal_memory = np.zeros(self.mem_size, dtype=np.bool)
-        self.current_loss = []
+        self.current_loss = [] 
         
         self.velocity_memory = np.zeros((self.mem_size,6), dtype=np.float32)
         self.new_velocity_memory = np.zeros((self.mem_size,6), dtype=np.float32)
-            
+           
     
     
     
@@ -153,7 +160,7 @@ class Agent():
 
 
         loss = self.Q_eval.loss(q_target, q_eval).to(self.Q_eval.device)
-        writer.add_scalar('training loss',loss,global_step=global_step)
+        writer.add_scalar('training loss',loss,global_step = global_step)
         loss.backward()
         self.Q_eval.optimizer.step()
         self.iter_cntr += 1
@@ -190,13 +197,13 @@ def rollouts(current_lidar,global_step):
     writer.add_scalar('avg_rollout_score',avg_reward_rollouts,global_step)
 """
   
-def rollouts(lidar,velocity,global_step):
+def rollouts(current_lidar,velocity,global_step):
     reward_bag = []
     for i in range(10):
         score = 0
         done = False
         while not done:
-            action = agent.choose_action_testing(lidar,velocity)
+            action = agent.choose_action_testing(current_lidar,velocity)
             observation_, reward, done, info = env.step(action)
             score+=reward
         reward_bag.append(score)
@@ -204,7 +211,7 @@ def rollouts(lidar,velocity,global_step):
     writer.add_scalar('avg_rollout_score',avg_reward_rollouts,global_step)
 
 def save_checkpoints(state,global_step):
-    filename = 'C:/Users/nikhi/Documents/three_lidar_input/my_checkpoints/checkpoint_'+str(global_step)+'.pth.tar'
+    filename = 'C:/Users/nikhi/Documents/three_lidar_input_NN/my_checkpoints/checkpoint_'+str(global_step)+'.pth.tar'
     print('saving checkpoint',global_step)
     T.save(state,filename)
     
@@ -364,7 +371,7 @@ if __name__ == '__main__':
     env.configure(config)                       # Update our configuration in the environment
     env.reset()
     #env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
-    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[540+6], batch_size=32, n_actions=5,eps_end=0.05)
+    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[540], batch_size=32, n_actions=5,eps_end=0.05)
     n_games = 4000
     scores,eps_history,avg_score,speed_at_collision = [],[],[],[]
     global_step = 0
@@ -385,23 +392,26 @@ if __name__ == '__main__':
 
             while not done:
                 global_step+=1
+                
                 checkpoints = {'state_dict':agent.Q_eval.state_dict(),'optimizer':agent.Q_eval.optimizer.state_dict()}
                 if global_step%500 == 0:
                     save_checkpoints(checkpoints,global_step)
+                
                          
                 """  Get Lidar   """
-                lidar = display_lidar(observation)  
+                lidar = display_lidar(observation)
                 total_lidar = np.concatenate((lidar,lidar_frame1,lidar_frame2))
                 vx = np.array([observation[0][3]])
                 vy = np.array([observation[0][4]])
                 velocity = np.concatenate((vx,vy))
                 total_velocity = np.concatenate((velocity,velocity_frame1,velocity_frame2))
-
+                
                 """ Check if rollouts 
                 if global_step%500 == 0:
                     rollouts(total_lidar,total_velocity,global_step)
                 """
-                """ Take action  """
+                
+                """ Take action  """                
                 action = agent.choose_action(total_lidar,total_velocity)
                 observation_, reward, done, info = env.step(action)   
                 
@@ -416,26 +426,27 @@ if __name__ == '__main__':
                 """ Render Store Learn """
                 env.render()                        
                 score+=reward
-                agent.store_transition(total_lidar, action, reward,total_lidar_,done,total_velocity,total_velocity_) 
+                agent.store_transition(total_lidar,action, reward,total_lidar_, done,total_velocity,total_velocity_) 
                 agent.learn(global_step)
-                
 
                 speed_in_episode.append(math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2)))
                 if(info['crashed'] == True):
                     crashed = True
-
+            
                 observation = observation_
                 lidar_frame2 = lidar_frame1
                 lidar_frame1 = lidar
                 
                 velocity_frame2 = velocity_frame1
                 velocity_frame1 = velocity
-                writer.add_scalar('epsilon',agent.epsilon,global_step=i)
+                writer.add_scalar('epsilon',agent.epsilon,global_step=global_step)
+                
             scores.append(score)
             speed_at_collision = math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2))
             eps_history.append(agent.epsilon)
             avg_score = np.mean(scores[-100:])
             avg_speed = np.mean(speed_in_episode)
+            
             print('episode ', i, 'score %.2f' % score,
                     'average score %.2f' % avg_score,
                     'epsilon %.2f' % agent.epsilon,
@@ -463,8 +474,8 @@ if __name__ == '__main__':
     #<--------------------------------------Testing ------------------------------->    
     
     
-    
-    """
+    """ 
+
     with open('Test.csv','w') as test_file:
         for i in range(500):
             score = 0
@@ -476,9 +487,9 @@ if __name__ == '__main__':
                 lidar = display_lidar(observation)  
                 vx = np.array([observation[0][3]])
                 vy = np.array([observation[0][4]])
-                current_lidar = np.concatenate((lidar,vx,vy))
+                velocity = np.concatenate((vx,vy))
                 
-                action = agent.choose_action_testing(current_lidar)
+                action = agent.choose_action_testing(lidar,velocity)
                 observation_, reward, done, info = env.step(action)   
 
                 env.render()                        
@@ -513,7 +524,7 @@ if __name__ == '__main__':
             test_string+=","+str(crashed)
             test_string+="\n"
             test_file.write(test_string)
-
-    """
+        """
+    
 
 

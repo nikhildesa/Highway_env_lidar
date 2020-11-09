@@ -1,7 +1,7 @@
 
 """
 
-      *******************   three (lidar) -> fc1-> fc2-> output+ three (vx,vy) ->fc3 ->fc4 ->output  **********************
+      *******************  three (lidar) -> fc1-> fc2-> output+ three (vx,vy) ->fc3 ->fc4 ->output  **********************
       
 
 
@@ -14,16 +14,15 @@ import numpy as np
 import math
 
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter(f'runs/t2')
+writer = SummaryWriter(f'runs')
 
 
 class DeepQNetwork(nn.Module):
-    def __init__(self, lr, input_dims, fc1_dims, fc2_dims, 
-            n_actions):
+    def __init__(self, lr, input_dims, fc1_dims, fc2_dims, n_actions):
         super(DeepQNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
+        self.fc2_dims = 512
         self.fc3_dims = 512
         self.fc4_dims = 512
 
@@ -41,8 +40,8 @@ class DeepQNetwork(nn.Module):
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
 
-    def forward(self, state,velocity): 
-        x = F.relu(self.fc1(state))
+    def forward(self, lidar,velocity): 
+        x = F.relu(self.fc1(lidar))
         x = F.relu(self.fc2(x))
         x = T.cat([x,velocity],dim = 1)
         x = F.relu(self.fc3(x))
@@ -54,7 +53,7 @@ class DeepQNetwork(nn.Module):
     
     
 class Agent():
-    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,eps_end=0.05, eps_dec=5e-5):
+    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,eps_end=0.01, eps_dec=3e-5):
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_min = eps_end
@@ -134,7 +133,7 @@ class Agent():
 
         return action
 
-    def learn(self,i):
+    def learn(self,global_step):
         if self.mem_cntr < self.batch_size:
             return
         
@@ -161,7 +160,7 @@ class Agent():
 
 
         loss = self.Q_eval.loss(q_target, q_eval).to(self.Q_eval.device)
-        writer.add_scalar('training loss',loss,global_step=i)
+        writer.add_scalar('training loss',loss,global_step = global_step)
         loss.backward()
         self.Q_eval.optimizer.step()
         self.iter_cntr += 1
@@ -212,7 +211,7 @@ def rollouts(current_lidar,velocity,global_step):
     writer.add_scalar('avg_rollout_score',avg_reward_rollouts,global_step)
 
 def save_checkpoints(state,global_step):
-    filename = 'my_checkpoint/checkpoint_'+str(global_step)+'.pth.tar'
+    filename = 'my_checkpoints/checkpoint_'+str(global_step)+'.pth.tar'
     print('saving checkpoint',global_step)
     T.save(state,filename)
     
@@ -372,10 +371,11 @@ if __name__ == '__main__':
     env.configure(config)                       # Update our configuration in the environment
     env.reset()
     #env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
-    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[540], batch_size=32, n_actions=5,eps_end=0.05)
+    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[540], batch_size=32, n_actions=5,eps_end=0.01)
     n_games = 4000
     scores,eps_history,avg_score,speed_at_collision = [],[],[],[]
     global_step = 0
+
     with open('Data.csv','w') as out_file:
         for i in range(n_games):
             score = 0
@@ -390,9 +390,11 @@ if __name__ == '__main__':
 
             while not done:
                 global_step+=1
+                
                 checkpoints = {'state_dict':agent.Q_eval.state_dict(),'optimizer':agent.Q_eval.optimizer.state_dict()}
                 if global_step%500 == 0:
                     save_checkpoints(checkpoints,global_step)
+                
                          
                 """  Get Lidar   """
                 lidar = display_lidar(observation)
@@ -402,11 +404,12 @@ if __name__ == '__main__':
                 velocity = np.concatenate((vx,vy))
                 total_velocity = np.concatenate((velocity,velocity_frame1,velocity_frame2))
                 
-                """ Check if rollouts """
+                """ Check if rollouts 
                 if global_step%500 == 0:
                     rollouts(total_lidar,total_velocity,global_step)
+                """
                 
-                """ Take action  """
+                """ Take action  """                
                 action = agent.choose_action(total_lidar,total_velocity)
                 observation_, reward, done, info = env.step(action)   
                 
@@ -422,7 +425,7 @@ if __name__ == '__main__':
                 env.render()                        
                 score+=reward
                 agent.store_transition(total_lidar,action, reward,total_lidar_, done,total_velocity,total_velocity_) 
-                agent.learn(i)
+                agent.learn(global_step)
 
                 speed_in_episode.append(math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2)))
                 if(info['crashed'] == True):
@@ -434,24 +437,25 @@ if __name__ == '__main__':
                 
                 velocity_frame2 = velocity_frame1
                 velocity_frame1 = velocity
+                writer.add_scalar('epsilon',agent.epsilon,global_step=global_step)
                 
             scores.append(score)
             speed_at_collision = math.sqrt(math.pow(observation[0][3],2)+math.pow(observation[0][4], 2))
             eps_history.append(agent.epsilon)
             avg_score = np.mean(scores[-100:])
             avg_speed = np.mean(speed_in_episode)
+            
             print('episode ', i, 'score %.2f' % score,
                     'average score %.2f' % avg_score,
                     'epsilon %.2f' % agent.epsilon,
-                    'crashed',crashed)
+                    'crashed',crashed,'step',global_step)
             
             # Adding to tensorboard
             
-            writer.add_scalar('reward',score,global_step=i)
-            writer.add_scalar('epsilon',agent.epsilon,global_step=i)
-            writer.add_scalar('avg_score',avg_score,global_step=i)
-            writer.add_scalar('speed_at_collision',speed_at_collision,global_step=i)
-            writer.add_scalar('avg_speed_epsiode',avg_speed,global_step=i)
+            writer.add_scalar('reward',score,global_step=global_step)
+            writer.add_scalar('avg_score',avg_score,global_step=global_step)
+            writer.add_scalar('speed_at_collision',speed_at_collision,global_step=global_step)
+            writer.add_scalar('avg_speed_epsiode',avg_speed,global_step=global_step)
             
             # Adding to local file
             out_string = ""
