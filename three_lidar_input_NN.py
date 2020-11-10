@@ -53,7 +53,7 @@ class DeepQNetwork(nn.Module):
     
     
 class Agent():
-    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,eps_end=0.01, eps_dec=3e-5):
+    def __init__(self,max_mem_size,gamma, epsilon, lr, input_dims, batch_size, n_actions,eps_end=0.05, eps_dec=0.000009895):
         self.gamma = gamma
         self.epsilon = epsilon
         self.eps_min = eps_end
@@ -211,7 +211,7 @@ def rollouts(current_lidar,velocity,global_step):
     writer.add_scalar('avg_rollout_score',avg_reward_rollouts,global_step)
 
 def save_checkpoints(state,global_step):
-    filename = 'my_checkpoints/checkpoint_'+str(global_step)+'.pth.tar'
+    filename = 'C:/Users/nikhi/Documents/three_lidar_input_NN/my_checkpoints/checkpoint_'+str(global_step)+'.pth.tar'
     print('saving checkpoint',global_step)
     T.save(state,filename)
     
@@ -371,13 +371,15 @@ if __name__ == '__main__':
     env.configure(config)                       # Update our configuration in the environment
     env.reset()
     #env = gym.wrappers.Monitor(env, "./vid", video_callable=lambda episode_id: True,force=True)
-    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[540], batch_size=32, n_actions=5,eps_end=0.01)
+    agent = Agent(max_mem_size=50000,gamma=0.99, epsilon=1.0, lr=0.003,input_dims=[540], batch_size=32, n_actions=5,eps_end=0.05)
     n_games = 4000
     scores,eps_history,avg_score,speed_at_collision = [],[],[],[]
     global_step = 0
-
+    i = -1
     with open('Data.csv','w') as out_file:
-        for i in range(n_games):
+        #for i in range(n_games):
+        while global_step!=120000:
+            i+=1
             score = 0
             lidar_frame1 = np.zeros(180)
             lidar_frame2 = np.zeros(180)
